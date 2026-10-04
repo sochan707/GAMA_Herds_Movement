@@ -145,6 +145,10 @@ species dog skills: [moving] {
 			do goto target: target_cell.location on: free_cells;			
 	    }
 	}
+	
+	reflex show_status when: every(50 #cycles) {
+	    write "Cycle: " + cycle + " | Dog: " + location + " | Sheep left: " + length(sheep) + " | Exited: " + sheep_exited;
+	}
 
     aspect base {
         draw circle(size) color: dog_color;
