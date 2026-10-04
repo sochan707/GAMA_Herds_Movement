@@ -14,11 +14,13 @@ global {
 	int nb_sheeps_init <- 75;
 	int nb_obstacles_init <- 5;
 	int nb_vegetations_init <- 8;
+	int nb_dogs_init <- 1;
 	
 	init {
 		create sheep number: nb_sheeps_init;
 		create obstacle number: nb_obstacles_init;
 		create vegetation number: nb_vegetations_init;
+		create dog number: nb_dogs_init;
 	}
 }
 
@@ -40,9 +42,19 @@ grid ground_cell width: 50 height: 50 {
 species obstacle {
     float width <- 13.0; 
     float height <- 2.0;
+    int obstacle_type <- rnd(1, 2);
+    
+    init {
+	    if (obstacle_type = 2) {
+	        width <- 20.0;
+	        height <- 4.0;
+	    }
+	    
+	    shape <- rectangle(width, height);
+	}
 
     aspect base {
-        draw rectangle(width, height) color: #black;
+        draw shape color: #black;
     }
 }
 
@@ -74,6 +86,14 @@ species vegetation {
 	
 	    draw square(5.0 * grass_amount) color: grass_color;
 	}
+}
+
+species dog {
+    float size <- 1.2;
+
+    aspect base {
+        draw circle(size) color: #red;
+    }
 }
 
 species sheep skills: [moving] {
@@ -132,7 +152,7 @@ species sheep skills: [moving] {
 	reflex find_neightbors {
 		neighbors <- sheep select ((each != self) and (each distance_to self < 7));
 		too_close_neighbors <- sheep select ((each != self) and (each distance_to self<2));
-		nearby_obstacles <- obstacle select (each distance_to self < 10);
+		nearby_obstacles <- obstacle select (each distance_to self < 1);
 		nearby_path_cells <- (ground_cell at_distance 10) select ((each.passages > 10) and (each != current_cell) and (cos((self direction_to each) - heading) > 0));
 		nearby_grass <- vegetation select ((each distance_to self < 15) and (each.grass_type = preferred_grass_type) and (each.grass_amount >= 0.1));
 		
@@ -295,11 +315,13 @@ experiment sheep_movement type: gui {
 	parameter "Initial number of sheeps: " var: nb_sheeps_init min: 1 max: 100 category: "Sheep";
 	parameter "Initial number of obstacles: " var: nb_obstacles_init min: 1 max: 10 category: "Obstacles";
 	parameter "Initial number of vegetations: " var: nb_vegetations_init min: 0 max: 100 category: "Vegetations";
+	parameter "Initial number of dogs: " var: nb_dogs_init min: 1 max: 3 category: "Dog";
 	
 	output {
 		display View {
 			species ground_cell aspect: base;
 			species vegetation aspect: base;
+			species dog aspect: base;
 			species sheep aspect: base;
 			species obstacle aspect: base;
 		}
