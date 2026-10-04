@@ -12,10 +12,13 @@ model SheepsMovement
 
 global {
 	int nb_sheeps_init <- 75;
+	int nb_obstacles_init <- 5;
+	int nb_vegetations_init <- 8;
 	
 	init {
 		create sheep number: nb_sheeps_init;
-		create obstacle number: 5;
+		create obstacle number: nb_obstacles_init;
+		create vegetation number: nb_vegetations_init;
 	}
 }
 
@@ -35,7 +38,7 @@ grid ground_cell width: 50 height: 50 {
 }
 
 species obstacle {
-    float width <- 13.0;
+    float width <- 13.0; 
     float height <- 2.0;
 
     aspect base {
@@ -43,9 +46,36 @@ species obstacle {
     }
 }
 
+species vegetation {
+	int grass_type <- rnd(1, 3);
+	
+	init {
+	    int attempts <- 0;
+	    loop while: (!empty(vegetation select ((each != self) and (each distance_to self < 8))) and attempts < 100) {
+	        location <- any_location_in(world.shape);
+	        attempts <- attempts + 1;
+	    }
+	}
+	
+	aspect base {
+	    rgb grass_color <- rgb(0, 170, 0);
+	
+	    if (grass_type = 1) {
+	        grass_color <- rgb(144, 238, 144);
+	    }
+	    if (grass_type = 3) {
+	        grass_color <- rgb(0, 90, 0);
+	    }
+	
+	    draw square(5.0) color: grass_color;
+	}
+}
+
 species sheep skills: [moving] {
 	float size <- 1.0;
 	rgb color <- #blue;
+	bool prefers_grass <- flip(0.35);
+	
 	float heading <- rnd(360);
 	float attraction_strength <- 0.9;
 	float alignment_strength <- 0.3;
@@ -76,6 +106,10 @@ species sheep skills: [moving] {
 	list<ground_cell> nearby_path_cells;
 	ground_cell best_path_cell;
 	
+	list<vegetation> nearby_grass;
+	vegetation nearest_grass;
+	int preferred_grass_type <- rnd(1, 3);
+	
 	aspect base {
 		draw circle(size) color: color;
 		
@@ -86,6 +120,39 @@ species sheep skills: [moving] {
 		if !empty(neighbors) {
 	        draw circle(0.3) at: neighbors_center color: #red;
 	    }
+	}
+	
+	reflex find_neightbors {
+		neighbors <- sheep select ((each != self) and (each distance_to self < 7));
+		too_close_neighbors <- sheep select ((each != self) and (each distance_to self<2));
+		nearby_obstacles <- obstacle select (each distance_to self < 10);
+		nearby_path_cells <- (ground_cell at_distance 10) select ((each.passages > 10) and (each != current_cell) and (cos((self direction_to each) - heading) > 0));
+		nearby_grass <- vegetation select ((each distance_to self < 15) and (each.grass_type = preferred_grass_type));
+		
+		if !empty(nearby_path_cells) {
+		    best_path_cell <- nearby_path_cells with_max_of (each.passages * cos((self direction_to each) - heading));
+		}
+		
+		if !empty(nearby_obstacles) {
+		    nearest_obstacle <- nearby_obstacles with_min_of (each distance_to self);
+		}
+		
+		if !empty(nearby_grass) {
+			nearest_grass <- nearby_grass with_min_of (each distance_to self);
+		}
+		
+		if !empty(neighbors) {
+			neighbors_center <- mean(neighbors collect each.location);
+	
+			mean_dx <- mean(neighbors collect cos(each.heading));
+			mean_dy <- mean(neighbors collect sin(each.heading));
+			neighbors_heading <- atan2(mean_dy, mean_dx);
+		}
+		
+		if !empty(too_close_neighbors) {
+			too_close_center <- mean(too_close_neighbors collect each.location);
+		}
+		
 	}
 	
 	reflex moving {
@@ -123,7 +190,7 @@ species sheep skills: [moving] {
 		
 		    heading <- heading + separation_difference * separation_strength;
 		}
-		else if !empty(neighbors) {
+		else if (!empty(neighbors) and !(prefers_grass and !empty(nearby_grass))) {
 
 			float direction_to_group <- self direction_to neighbors_center;
 
@@ -153,21 +220,39 @@ species sheep skills: [moving] {
 			heading <- heading + heading_difference * alignment_strength;
 		}
 		
-//		if !empty(nearby_path_cells) {
-//		    float direction_to_path <- self direction_to best_path_cell;
-//		
-//		    path_difference <- direction_to_path - heading;
-//		
-//		    if path_difference > 180 {
-//		        path_difference <- path_difference - 360;
-//		    }
-//		
-//		    if path_difference < -180 {
-//		        path_difference <- path_difference + 360;
-//		    }
-//		
-//		    heading <- heading + path_difference * path_following_strength;
-//		}
+		if (empty(nearby_obstacles) and empty(too_close_neighbors) and !empty(nearby_path_cells)) {
+		    float direction_to_path <- self direction_to best_path_cell;
+		
+		    path_difference <- direction_to_path - heading;
+		
+		    if path_difference > 180 {
+		        path_difference <- path_difference - 360;
+		    }
+		
+		    if path_difference < -180 {
+		        path_difference <- path_difference + 360;
+		    }
+		
+		    heading <- heading + path_difference * path_following_strength;
+		}
+		
+		if (prefers_grass and !empty(nearby_grass) and empty(nearby_obstacles) and empty(too_close_neighbors)) {
+		    float direction_to_grass <- self direction_to nearest_grass;
+		    float grass_difference <- direction_to_grass - heading;
+		
+		    if grass_difference > 180 {
+		        grass_difference <- grass_difference - 360;
+		    }
+		    if grass_difference < -180 {
+		        grass_difference <- grass_difference + 360;
+		    }
+		
+		    heading <- heading + grass_difference * 0.3;
+		}
+		
+		if (empty(nearby_path_cells) and empty(nearby_obstacles) and empty(too_close_neighbors)) {
+			heading <- heading + rnd(-5.0, 5.0);
+		}
 		
 		do move;
 		
@@ -181,44 +266,17 @@ species sheep skills: [moving] {
 		}
 	}
 	
-	reflex find_neightbors {
-		neighbors <- sheep select ((each != self) and (each distance_to self < 7));
-		too_close_neighbors <- sheep select ((each != self) and (each distance_to self<2));
-		nearby_obstacles <- obstacle select (each distance_to self < 10);
-		nearby_path_cells <- (ground_cell at_distance 5) select (each.passages > 10);
-//		nearby_path_cells <- ground_cell select ((each distance_to self < 5) and (each.passages > 10));
-		
-		if !empty(nearby_path_cells) {
-		    best_path_cell <- nearby_path_cells with_max_of each.passages;
-		}
-		
-		if !empty(nearby_obstacles) {
-		    nearest_obstacle <- nearby_obstacles with_min_of (each distance_to self);
-		}
-		
-		if !empty(neighbors) {
-			neighbors_center <- mean(neighbors collect each.location);
-			neighbors_heading <- atan2(mean_dy, mean_dx);
-//			neighbors_heading <- mean(neighbors collect each.heading);
-	
-			mean_dx <- mean(neighbors collect cos(each.heading));
-			mean_dy <- mean(neighbors collect sin(each.heading));
-		}
-		
-		if !empty(too_close_neighbors) {
-			too_close_center <- mean(too_close_neighbors collect each.location);
-		}
-		
-	}
-	
 }
 
 experiment sheep_movement type: gui {
 	parameter "Initial number of sheeps: " var: nb_sheeps_init min: 1 max: 100 category: "Sheep";
+	parameter "Initial number of obstacles: " var: nb_obstacles_init min: 1 max: 10 category: "Obstacles";
+	parameter "Initial number of vegetations: " var: nb_vegetations_init min: 0 max: 100 category: "Vegetations";
 	
 	output {
 		display View {
 			species ground_cell aspect: base;
+			species vegetation aspect: base;
 			species sheep aspect: base;
 			species obstacle aspect: base;
 		}
