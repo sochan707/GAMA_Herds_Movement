@@ -15,17 +15,45 @@ global {
 	int nb_obstacles_init <- 5;
 	int nb_vegetations_init <- 8;
 	int nb_dogs_init <- 1;
+	int sheep_exited <- 0;
+	geometry dog_free_space;
 	
 	init {
-		create sheep number: nb_sheeps_init;
 		create obstacle number: nb_obstacles_init;
 		create vegetation number: nb_vegetations_init;
-		create dog number: nb_dogs_init;
+		create exit_gate number: 1 {location <- {98.0,50.0};}
+		
+		dog_free_space <- copy(shape);
+		
+		loop o over: obstacle {
+		    dog_free_space <- dog_free_space - o.shape;
+		}
+		
+		ask ground_cell {
+		    blocked <- !empty(obstacle select (each.shape intersects self.shape));
+		}
+		
+		list<ground_cell> free_cells <- ground_cell where not each.blocked;
+		ground_cell start_cell <- free_cells closest_to {1.0, 50.0};
+		
+		create sheep number: nb_sheeps_init {
+		    ground_cell spawn_cell <- one_of(free_cells);
+		    location <- spawn_cell.location;
+		}
+		
+		create dog number: nb_dogs_init {
+		    location <- start_cell.location;
+		}
+	}
+	
+	reflex stop_when_all_exited when: sheep_exited >= nb_sheeps_init {
+	    do pause;
 	}
 }
 
-grid ground_cell width: 50 height: 50 {
+grid ground_cell width: 50 height: 50 neighbors: 8 {
     int passages <- 0;
+    bool blocked <- false;
     float path_intensity <- min([1.0, passages / 100.0]);
     
     aspect base {
@@ -39,6 +67,12 @@ grid ground_cell width: 50 height: 50 {
     }
 }
 
+species exit_gate {
+	aspect base {
+		draw rectangle(4.0, 16.0) color: #orange;
+	}
+}
+
 species obstacle {
     float width <- 13.0; 
     float height <- 2.0;
@@ -49,6 +83,10 @@ species obstacle {
 	        width <- 20.0;
 	        height <- 4.0;
 	    }
+	    
+	    loop while: (location.x > 80.0 and location.y > 30.0 and location.y < 70.0) {
+		    location <- any_location_in(world.shape);
+		}
 	    
 	    shape <- rectangle(width, height);
 	}
@@ -88,11 +126,28 @@ species vegetation {
 	}
 }
 
-species dog {
+species dog skills: [moving] {
     float size <- 1.2;
+    rgb dog_color <- #grey;
+    bool is_awake <- false;
+    
+    reflex wake_up when: cycle >= 500 {
+    	dog_color <- #red;
+    	is_awake <- true;
+    }
+    
+    reflex go_behind_sheep when: is_awake{
+	    if (!empty(sheep)) {
+	        sheep last_sheep <- sheep with_min_of (each.location.x);
+	        point target <- {max([1.0, last_sheep.location.x - 4.0]), last_sheep.location.y};
+			list<ground_cell> free_cells <- ground_cell where not each.blocked;
+			ground_cell target_cell <- free_cells closest_to target;
+			do goto target: target_cell.location on: free_cells;			
+	    }
+	}
 
     aspect base {
-        draw circle(size) color: #red;
+        draw circle(size) color: dog_color;
     }
 }
 
@@ -100,6 +155,7 @@ species sheep skills: [moving] {
 	float size <- 1.0;
 	rgb color <- #blue;
 	bool prefers_grass <- flip(0.35);
+	bool going_to_exit <- false;
 	
 	float heading <- rnd(360);
 	float attraction_strength <- 0.9;
@@ -202,7 +258,6 @@ species sheep skills: [moving] {
 //==============================================================================
 
 		else if !empty(too_close_neighbors) {
-//			heading <- too_close_center direction_to self;
 			float direction_away <- too_close_center direction_to self;
 
 		    separation_difference <- direction_away - heading;
@@ -281,7 +336,18 @@ species sheep skills: [moving] {
 			heading <- heading + rnd(-5.0, 5.0);
 		}
 		
-		if (grazing_steps_left = 0 and grass_cooldown_steps_left = 0 and prefers_grass and !empty(nearby_grass) and (self distance_to nearest_grass < 3)) {
+// =========================================================================================================
+		bool dog_nearby <- !empty(dog select (each.is_awake and (each distance_to self < 8)));
+
+		if (dog_nearby) {
+		    going_to_exit <- true;
+		}
+		
+		if (going_to_exit) {
+		    grazing_steps_left <- 0;
+		}
+		
+		if (grazing_steps_left = 0 and grass_cooldown_steps_left = 0 and prefers_grass and !empty(nearby_grass) and (self distance_to nearest_grass < 3) and !going_to_exit) {
 		    grazing_steps_left <- 10;
 		    grass_cooldown_steps_left <- 125;
 		    
@@ -290,10 +356,25 @@ species sheep skills: [moving] {
 			}
 		}
 		
+		if (!empty(dog)) {
+		    dog closest_dog <- dog with_min_of (each distance_to self);
+		    if (self distance_to closest_dog < 2.0) {
+		        grazing_steps_left <- 0;
+		        heading <- closest_dog direction_to self;
+		    }
+		}
+		
 		if (grazing_steps_left > 0) {
 		    grazing_steps_left <- grazing_steps_left - 1;
 		} else {
-		    do move;
+		    if (going_to_exit) {
+			    list<ground_cell> free_cells <- ground_cell where not each.blocked;
+			    ground_cell exit_cell <- free_cells closest_to {98.0, 50.0};
+			    do goto target: exit_cell.location on: free_cells;
+			} else {
+			    do move bounds: dog_free_space;
+			}
+			
 		    if (grass_cooldown_steps_left > 0) {
 		        grass_cooldown_steps_left <- grass_cooldown_steps_left - 1;
 		    }
@@ -306,6 +387,13 @@ species sheep skills: [moving] {
 		    ask current_cell {
 		        passages <- passages + 1;
 		    }
+		}
+		
+		if (location.x >= 96.0 and location.y >= 42.0 and location.y <= 58.0) {
+		    ask world {
+		        sheep_exited <- sheep_exited + 1;
+		    }
+		    do die;
 		}
 	}
 	
@@ -320,10 +408,13 @@ experiment sheep_movement type: gui {
 	output {
 		display View {
 			species ground_cell aspect: base;
+			species exit_gate aspect:base;
 			species vegetation aspect: base;
 			species dog aspect: base;
 			species sheep aspect: base;
 			species obstacle aspect: base;
 		}
+		
+		monitor "Sheep exited" value: sheep_exited;
 	}
 }
