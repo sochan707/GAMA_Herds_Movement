@@ -48,6 +48,7 @@ species obstacle {
 
 species vegetation {
 	int grass_type <- rnd(1, 3);
+	float grass_amount <- 1.0;
 	
 	init {
 	    int attempts <- 0;
@@ -55,6 +56,10 @@ species vegetation {
 	        location <- any_location_in(world.shape);
 	        attempts <- attempts + 1;
 	    }
+	}
+	
+	reflex regrow {
+	    grass_amount <- min([1.0, grass_amount + 0.001]);
 	}
 	
 	aspect base {
@@ -67,7 +72,7 @@ species vegetation {
 	        grass_color <- rgb(0, 90, 0);
 	    }
 	
-	    draw square(5.0) color: grass_color;
+	    draw square(5.0 * grass_amount) color: grass_color;
 	}
 }
 
@@ -109,6 +114,8 @@ species sheep skills: [moving] {
 	list<vegetation> nearby_grass;
 	vegetation nearest_grass;
 	int preferred_grass_type <- rnd(1, 3);
+	int grazing_steps_left <- 0;
+	int grass_cooldown_steps_left <- 0;
 	
 	aspect base {
 		draw circle(size) color: color;
@@ -127,7 +134,7 @@ species sheep skills: [moving] {
 		too_close_neighbors <- sheep select ((each != self) and (each distance_to self<2));
 		nearby_obstacles <- obstacle select (each distance_to self < 10);
 		nearby_path_cells <- (ground_cell at_distance 10) select ((each.passages > 10) and (each != current_cell) and (cos((self direction_to each) - heading) > 0));
-		nearby_grass <- vegetation select ((each distance_to self < 15) and (each.grass_type = preferred_grass_type));
+		nearby_grass <- vegetation select ((each distance_to self < 15) and (each.grass_type = preferred_grass_type) and (each.grass_amount >= 0.1));
 		
 		if !empty(nearby_path_cells) {
 		    best_path_cell <- nearby_path_cells with_max_of (each.passages * cos((self direction_to each) - heading));
@@ -254,7 +261,23 @@ species sheep skills: [moving] {
 			heading <- heading + rnd(-5.0, 5.0);
 		}
 		
-		do move;
+		if (grazing_steps_left = 0 and grass_cooldown_steps_left = 0 and prefers_grass and !empty(nearby_grass) and (self distance_to nearest_grass < 3)) {
+		    grazing_steps_left <- 10;
+		    grass_cooldown_steps_left <- 125;
+		    
+		    ask nearest_grass {
+			    grass_amount <- max([0.0, grass_amount - 0.1]);
+			}
+		}
+		
+		if (grazing_steps_left > 0) {
+		    grazing_steps_left <- grazing_steps_left - 1;
+		} else {
+		    do move;
+		    if (grass_cooldown_steps_left > 0) {
+		        grass_cooldown_steps_left <- grass_cooldown_steps_left - 1;
+		    }
+		}
 		
 		previous_cell <- current_cell;
 		current_cell <- ground_cell closest_to self;
