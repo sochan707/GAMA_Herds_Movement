@@ -131,7 +131,7 @@ species dog skills: [moving] {
     rgb dog_color <- #grey;
     bool is_awake <- false;
     
-    reflex wake_up when: cycle >= 500 {
+    reflex wake_up when: cycle >= 50 {
     	dog_color <- #red;
     	is_awake <- true;
     }
@@ -146,7 +146,7 @@ species dog skills: [moving] {
 	    }
 	}
 	
-	reflex show_status when: every(50 #cycles) {
+	reflex show_status when: every(5 #cycles) {
 	    write "Cycle: " + cycle + " | Dog: " + location + " | Sheep left: " + length(sheep) + " | Exited: " + sheep_exited;
 	}
 
